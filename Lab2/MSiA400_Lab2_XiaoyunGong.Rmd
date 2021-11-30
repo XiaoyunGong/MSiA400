@@ -1,0 +1,250 @@
+---
+title: "MSiA400_Assignment2_XiaoyunGong"
+author: "Xiaoyun Gong"
+date: "10/20/2021"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(caret)
+library(e1071)
+set.seed(1009)
+```
+
+
+```{r}
+### import data
+gradAdmit = read.csv('gradAdmit.csv')
+```
+
+### part a
+
+Split the data into testing, training, and validation datasets for cross validation (CV). 
+
+First, hold out 20% for your test dataset. On the remaining 80%, split it into 5 folds. 
+
+
+```{r}
+n = nrow(gradAdmit) # number of samples
+# hold out 20% for testing
+sample = sample.int(n = n, size = floor(.2*n), replace = F)
+train = gradAdmit[-sample,]
+test = gradAdmit[sample,]
+### there are 80 obs in test, and 320 obs in train. 
+```
+
+```{r}
+nfolds = 5
+folds = createFolds(1:n, k = nfolds)
+```
+
+### part b
+
+Train a number of SVM models (using different hyperparameters) on the training set for each CV fold. 
+
+For each run, report the accuracy on both the training and validation datasets, averaged over the folds. 
+
+Use the same split as Problem 1a. Try using various kernel functions, such as linear, polynomial, radialbasis (or Gaussian), etc. Also, try to tune their respective hyperparameters (degree, gamma, and coef0), and the value for cost (or C), based on the validation accuracy.
+
+```{r}
+degree_list = c(2, 3, 4, 5)
+gamma_list <- c(0.001, 0.1, 0.2, 0.3)
+coef0_list <- c(1, 3, 5, 7)
+cost_list = c(0.01, 0.1, 1, 10, 100)
+```
+
+#### kernel = linear
+```{r, warning = FALSE}
+## kernel = linear
+for(c in 1:length(cost_list)){
+  acc_train = rep(NA, nfolds)
+  acc_val = rep(NA, nfolds)
+  for (i in 1:nfolds){
+    train = gradAdmit[-folds[[i]],]
+    val = gradAdmit[folds[[i]],]
+    
+    svm = suppressWarnings(svm(formula =  factor(admit) ~ ., 
+              cost = cost_list[c],
+              data = train,
+              kernel = 'linear'))
+    
+    pred_train = predict(svm, newdata = train, type='response')
+    pred_val = predict(svm, newdata = val, type='response')
+    accuracy_train = 1 - (sum(abs(as.numeric(pred_train) - 1 - train[,1]))/nrow(train))
+    accuracy_val = 1 - (sum(abs(as.numeric(pred_val) - 1 - val[,1]))/nrow(val))
+    
+    acc_train[i] = accuracy_train
+    acc_val[i] = accuracy_val
+  }
+  acc_train_mean = mean(acc_train)
+  acc_val_mean = mean(acc_val)
+  print(paste0("lenear kernel with cost = ", cost_list[c]))
+  print(paste0("average accuracy on train = ", acc_train_mean, " average accuracy on validation = ", acc_val_mean))
+}
+```
+
+#### kernel = polynomial
+```{r, warning=FALSE}
+## kernel = polynomial
+for (d in 1:length(degree_list)){
+  for (c in 1:length(cost_list)){
+    for (g in 1:length(gamma_list)){
+      for(co in 1:length(coef0_list)){
+        acc_train = rep(NA, nfolds)
+        acc_val = rep(NA, nfolds)
+        for (i in 1:nfolds){
+          train = gradAdmit[-folds[[i]],]
+          val = gradAdmit[folds[[i]],]
+          
+          svm = svm(formula =  factor(admit) ~ ., 
+                    cost = cost_list[c],
+                    degree = degree_list[d],
+                    gamma = gamma_list[g],
+                    coef0 = coef0_list[co],
+                    data=train,
+                    kernel = "polynomial")
+          
+          pred_train = predict(svm, newdata = train, type='response')
+          pred_val = predict(svm, newdata = val, type='response')
+          accuracy_train = 1 - (sum(abs(as.numeric(pred_train) - 1 - train[,1]))/nrow(train))
+          accuracy_val = 1 - (sum(abs(as.numeric(pred_val) - 1 - val[,1]))/nrow(val))
+    
+          acc_train[i] = accuracy_train
+          acc_val[i] = accuracy_val
+        }
+        acc_train_mean = mean(acc_train)
+        acc_val_mean = mean(acc_val)
+        print(paste0("Polynomial kernel with cost = ", cost_list[c], ", degree = ", degree_list[d], ", gamma = ", gamma_list[g], ", coef0 = ", cost_list[co]))
+        print(paste0("average accuracy on train = ", acc_train_mean, ", average accuracy on validation = ", acc_val_mean))
+        }
+    }
+  }
+}
+```
+
+#### kernel = radialbasis
+```{r, warning=FALSE}
+## kernel = radialbasis
+for (g in 1:length(gamma_list)){
+  for(c in 1:length(cost_list)){
+    acc_train = rep(NA, nfolds)
+    acc_val = rep(NA, nfolds)
+    for (i in 1:nfolds){
+      train = gradAdmit[-folds[[i]],]
+      val = gradAdmit[folds[[i]],]
+      
+      svm = suppressWarnings(svm(formula =  factor(admit) ~ ., 
+                cost = cost_list[c],
+                gamma = gamma_list[g],
+                data = train,
+                kernel = 'radial'))
+      
+       pred_train = predict(svm, newdata = train, type='response')
+      pred_val = predict(svm, newdata = val, type='response')
+      accuracy_train = 1 - (sum(abs(as.numeric(pred_train) - 1 - train[,1]))/nrow(train))
+      accuracy_val = 1 - (sum(abs(as.numeric(pred_val) - 1 - val[,1]))/nrow(val))
+      
+      acc_train[i] = accuracy_train
+      acc_val[i] = accuracy_val
+    }
+    acc_train_mean = mean(acc_train)
+        acc_val_mean = mean(acc_val)
+        print(paste0("Radial kernel with cost = ", cost_list[c], ", gamma = ", gamma_list[g]))
+        print(paste0("average accuracy on train = ", acc_train_mean, ", average accuracy on validation = ", acc_val_mean))
+  }
+}
+```
+
+#### kernel = sigmoid
+```{r, warning=FALSE}
+## kernel = sigmoid
+for (c in 1:length(cost_list)){
+  for (g in 1:length(gamma_list)){
+    for(co in 1:length(coef0_list)){
+      acc_train = rep(NA, nfolds)
+      acc_val = rep(NA, nfolds)
+      for (i in 1:nfolds){
+        train = gradAdmit[-folds[[i]],]
+        val = gradAdmit[folds[[i]],]
+        
+        svm = svm(formula =  factor(admit) ~ ., 
+                  scale = FALSE, 
+                  cost = cost_list[c],
+                  gamma = gamma_list[g],
+                  coef0 = coef0_list[co],
+                  data=train,
+                  kernel = "sigmoid")
+        
+      pred_train = predict(svm, newdata = train, type='response')
+      pred_val = predict(svm, newdata = val, type='response')
+      accuracy_train = 1 - (sum(abs(as.numeric(pred_train) - 1 - train[,1]))/nrow(train))
+      accuracy_val = 1 - (sum(abs(as.numeric(pred_val) - 1 - val[,1]))/nrow(val))
+      
+      acc_train[i] = accuracy_train
+      acc_val[i] = accuracy_val
+      }
+      acc_train_mean = mean(acc_train)
+        acc_val_mean = mean(acc_val)
+        print(paste0("Sigmoid kernel with cost = ", cost_list[c], ", gamma = ", gamma_list[g], ", coef0 = ", cost_list[co]))
+        print(paste0("average accuracy on train = ", acc_train_mean, ", average accuracy on validation = ", acc_val_mean))
+      }
+  }
+}
+```
+
+
+```{r}
+acc_test = rep(NA, nfolds)
+for (i in 1:nfolds){
+        train = gradAdmit[-folds[[i]],]
+        test = gradAdmit[folds[[i]],]
+        
+        svm = svm(formula =  factor(admit) ~ ., 
+                  kernel = "radial",
+                  cost = 9,
+                  gamma = 0.16,
+                  data = train)
+        
+        pred = predict(svm, newdata = test, type='response')
+        
+        accuracy = 1 - (sum(abs(as.numeric(pred) - 1 - test[,1]))/nrow(test))
+        acc_test[i] = accuracy
+}
+mean(acc_test)
+```
+
+As cost increase, difference between average of accuracy for predictions on training and average of accuracy for predictions on validation tends to increase. 
+
+Based on the models that I fit, polynomial (with degree=5) kernel and radial basis kernel perform better than others.
+
+The optimal hyperparameters are cost = 9 and gamma = 0.16 when kernel = radial and this model perform the best on validation set.
+
+
+### part c
+
+```{r}
+set.seed(1009)
+gradAdmit = read.csv('gradAdmit.csv')
+sample = sample.int(n = n, size = floor(.2*n), replace = F)
+train = gradAdmit[-sample,]
+test = gradAdmit[sample,]
+
+svm = svm(formula =  factor(admit) ~ ., 
+                  kernel = "radial",
+                  cost = 9,
+                  gamma = 0.16,
+                  data = train)
+      
+pred = predict(svm, newdata = test, type='response')
+        
+accuracy = 1 - (sum(abs(as.numeric(pred) - 1 - test[,1]))/nrow(test))
+
+accuracy
+```
+
+
+The accuracy on test set is 0.7.

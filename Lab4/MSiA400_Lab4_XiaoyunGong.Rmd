@@ -1,0 +1,412 @@
+---
+title: "MSiA400_Lab4_XiaoyunGong"
+author: "Xiaoyun Gong"
+date: "11/13/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include = FALSE}
+library(Hmisc)
+library(dplyr)
+library(DMwR)
+library(e1071)
+library(car)
+library(caret)
+library(mice)
+library(tidyr)
+```
+
+
+### Problem 1
+
+```{r}
+## load data
+data = read.csv("redwine.txt", sep="\t")
+redwine = read.csv("redwine.txt", sep="\t")
+```
+
+#### part a
+```{r}
+hist.data.frame(data)
+```
+
+#### part b
+```{r}
+for (v in names(data)){
+  boxplot(data[[v]], main = paste("Box plot of", v))
+}
+```
+
+SD has two siginificant outliers around 300. 
+
+PH has a handful of outliers that is below 2 or above 5.
+
+DE has some outliers that is above around 1.002 and below 0.992.
+
+Most of the variables have some outliers. However, it is debatable tat if those "outliers" are real outliers as some distribution is very skewed.
+
+#### part c
+```{r}
+for (v in names(data)){
+  print(paste("skewness of", v, "is", skewness(data[[v]], na.rm=T)))
+  print(paste("kurtosis of", v, "is", kurtosis(data[[v]], na.rm=T)))
+}
+```
+
+**skewed left**: None.
+
+**skewed right**: FA, VA, RS, CH, FS, SD, PH, SU, AL (skewness > 0.5)
+
+**not significantly skewed**: QA, CA, DE (skewness < 0.5)
+
+**mesokurtic (kurtosis around 3)** : FS, SD
+
+**leptokurtic (kurtosis > 3, fat tails)**: RS, CH, PH, SU
+
+**platykurtic (kurtosis < 3, thin tails)**: QA, FA, VA, CA, DE, AL
+
+#### part d
+```{r}
+for (v in names(data)){
+  qqnorm(y = data[[v]], main = "Normal Q-Q Plot",
+       xlab = "Theoretical Quantiles", ylab = paste("Sample Quantiles for", v),
+       plot.it = TRUE, datax = FALSE)
+  qqline(y = data[[v]], datax = FALSE, distribution = qnorm,
+       probs = c(0.25, 0.75), qtype = 7, col = "steelblue")
+}
+```
+
+The qqplots confirmed observations from previous parts. 
+
+As all variables are slightly skewed, all qqplots are concave up around the middle part.
+
+Those variables with kurtosis > 3 also have fat tails in their qqplots.
+
+### Problem 2
+
+#### part a
+
+```{r}
+colSums(is.na(data)) 
+```
+
+RS and SD has missing values. There are 22 missing values in RS, and 17 missing values in SD.
+
+```{r}
+sum(rowSums(is.na(data)))
+```
+
+There are 39 rows with missing values in total. 
+
+#### Set up cross validation folds
+```{r}
+## set up cross validation folds
+set.seed(1)
+n = nrow(data)
+nfolds = 5
+folds = createFolds(1:n, k=nfolds)
+```
+
+#### part b
+```{r}
+random.imp = function (imputeSet, sampleSet){
+  missing_imputeSet = is.na(imputeSet)
+  missing_sampleSet = is.na(sampleSet)
+  n.missing_imputeSet = sum(missing_imputeSet) # number of missing values
+  sampleSet.obs = sampleSet[!missing_sampleSet]
+  imputed = imputeSet
+  # sample with replacement
+  imputed[missing_imputeSet] = sample(sampleSet.obs, n.missing_imputeSet, replace=T)
+  return(imputed)
+}
+```
+
+```{r}
+### Linear regression and get MSE 
+
+## start a new list of the train MSEs and the test MSEs.
+data = redwine
+train_MSE_random = rep(NA, nfolds)
+test_MSE_random = rep(NA, nfolds)
+
+## impute
+##for (i in 1:nfolds){
+##  data[folds[[i]],]$SD = random.imp(data[folds[[i]],]$SD)
+##  data[folds[[i]],]$RS = random.imp(data[folds[[i]],]$RS)
+##}
+
+for (i in 1:nfolds){
+  train = data[-folds[[i]],]
+  train$SD = random.imp(train$SD, train$SD)
+  train$RS = random.imp(train$RS, train$RS)
+  test = data[folds[[i]],]
+  test$SD = random.imp(test$SD, train$SD)
+  test$RS = random.imp(test$RS, train$RS)
+  
+  
+  ## linear regression
+  fit = lm(QA ~ ., data = train)
+  train_pred = predict(fit, train)
+  test_pred = predict(fit, test)
+  
+  ## MSEs
+  train_MSE_random[i] = mean((train$QA - train_pred)^2)
+  test_MSE_random[i] = mean((test$QA - test_pred)^2)
+}
+train_MSE_random
+test_MSE_random
+```
+
+**For random sampling imputation,**
+
+The avg MSE on train is `r round(mean(train_MSE_random), 4)` and the avg MSE on test is `r round(mean(test_MSE_random), 4)`.
+
+#### part c
+```{r}
+Mode = function(x) {
+  mode = as.numeric(names(sort(table(x),decreasing=T))[1])
+  return(mode)
+}
+
+mcv.imp = function (imputeSet, sampleSet){
+  missing_imputeSet = is.na(imputeSet)
+  imputed = imputeSet
+  imputed[missing_imputeSet] = Mode(sampleSet)
+  return(imputed)
+}
+
+```
+
+```{r}
+### Linear regression and get MSE 
+
+## start a new list of the train MSEs and the test MSEs.
+data = redwine
+train_MSE_mode = rep(NA, nfolds)
+test_MSE_mode = rep(NA, nfolds)
+
+## impute
+##for (i in 1:nfolds){
+##  data[folds[[i]],]$SD = mcv.imp(data[folds[[i]],]$SD)
+##  data[folds[[i]],]$RS = mcv.imp(data[folds[[i]],]$RS)
+##}
+
+for (i in 1:nfolds){
+  train = data[-folds[[i]],]
+  test = data[folds[[i]],]
+  train$SD = mcv.imp(train$SD, train$SD)
+  train$RS = mcv.imp(train$RS, train$RS)
+  test$SD = mcv.imp(test$SD, train$SD)
+  test$RS = mcv.imp(test$RS, train$RS)
+  
+  
+  ## linear regression
+  fit = lm(QA ~ ., data = train)
+  train_pred = predict(fit, train)
+  test_pred = predict(fit, test)
+  
+  ## MSEs
+  train_MSE_mode[i] = mean((train$QA - train_pred)^2)
+  test_MSE_mode[i] = mean((test$QA - test_pred)^2)
+}
+train_MSE_mode
+test_MSE_mode
+```
+
+**For mode imputation,**
+
+The avg MSE on train is `r round(mean(train_MSE_mode), 4)` and the avg MSE on test is `r round(mean(test_MSE_mode), 4)`.
+
+#### part d
+```{r}
+avg.imp = function (imputeSet, sampleSet){
+  missing_imputeSet = is.na(imputeSet)
+  imputed = imputeSet
+  imputed[missing_imputeSet] = mean(sampleSet, na.rm=T)
+  return(imputed)
+}
+```
+
+```{r}
+### Linear regression and get MSE 
+
+## start a new list of the train MSEs and the test MSEs.
+data = redwine
+train_MSE_avg = rep(NA, nfolds)
+test_MSE_avg = rep(NA, nfolds)
+
+## impute
+##for (i in 1:nfolds){
+##  data[folds[[i]],]$SD = avg.imp(data[folds[[i]],]$SD)
+##  data[folds[[i]],]$RS = avg.imp(data[folds[[i]],]$RS)
+## }
+
+for (i in 1:nfolds){
+  train = data[-folds[[i]],]
+  test = data[folds[[i]],]
+  train$SD = avg.imp(train$SD, train$SD)
+  train$RS = avg.imp(train$RS, train$RS)
+  test$SD = avg.imp(test$SD, train$SD)
+  test$RS = avg.imp(test$RS, train$RS)
+  
+  ## linear regression
+  fit = lm(QA ~ ., data = train)
+  train_pred = predict(fit, train)
+  test_pred = predict(fit, test)
+  
+  ## MSEs
+  train_MSE_avg[i] = mean((train$QA - train_pred)^2)
+  test_MSE_avg[i] = mean((test$QA - test_pred)^2)
+}
+train_MSE_avg
+test_MSE_avg
+```
+
+**For mean imputation,**
+
+The avg MSE on train is `r round(mean(train_MSE_avg), 4)` and the avg MSE on test is `r round(mean(test_MSE_avg), 4)`.
+
+#### part e
+
+```{r}
+## 5NN
+
+## start a new list of the train MSEs and the test MSEs.
+data = redwine
+train_MSE_5NN = rep(NA, nfolds)
+test_MSE_5NN = rep(NA, nfolds)
+
+## impute
+##for (i in 1:nfolds){
+##  data[folds[[i]],] = knnImputation(data[folds[[i]],], k=5, distData =)
+##}
+
+for (i in 1:nfolds){
+  train = data[-folds[[i]],]
+  test = data[folds[[i]],]
+  train = knnImputation(train, k=5, distData = train)
+  test = knnImputation(test, k=5, distData = train)
+  
+  ## linear regression
+  fit = lm(QA ~ ., data = train)
+  train_pred = predict(fit, train)
+  test_pred = predict(fit, test)
+  
+  ## MSEs
+  train_MSE_5NN[i] = mean((train$QA - train_pred)^2)
+  test_MSE_5NN[i] = mean((test$QA - test_pred)^2)
+}
+train_MSE_5NN
+test_MSE_5NN
+```
+
+**For 5NN imputation,**
+
+The avg MSE on train is `r round(mean(train_MSE_5NN), 4)` and the avg MSE on test is `r round(mean(test_MSE_5NN), 4)`.
+
+#### part f
+```{r}
+## MICE
+## start a new list of the train MSEs and the test MSEs.
+data = redwine
+train_MSE_mice = rep(NA, nfolds)
+test_MSE_mice = rep(NA, nfolds)
+
+
+for (i in 1:nfolds){
+  train = data[-folds[[i]],]
+  train$t = FALSE
+  test = data[folds[[i]],]
+  test$t = TRUE
+  d = rbind(train, test)
+  imputed =  mice(d, m = 10, seed = 1, defaultMethod = 'pmm', print = F, ignore = d$t)
+  d = complete(imputed, 5)
+  train = d[d$t == FALSE, ]
+  test = d[d$t == TRUE,]
+  drops <- c("t")
+  train = train[ , !(names(d) %in% drops)]
+  test = test[ , !(names(d) %in% drops)]
+  
+  ## linear regression
+  fit = lm(QA ~ ., data = train)
+  train_pred = predict(fit, train)
+  test_pred = predict(fit, test)
+  
+  ## MSEs
+  train_MSE_mice[i] = mean((train$QA - train_pred)^2)
+  test_MSE_mice[i] = mean((test$QA - test_pred)^2)
+}
+train_MSE_mice
+test_MSE_mice
+```
+
+**For MICE imputation,**
+
+The avg MSE on train is `r round(mean(train_MSE_mice), 4)` and the avg MSE on test is `r round(mean(test_MSE_mice), 4)`.
+
+#### part g
+```{r}
+## dropna
+
+## start a new list of the train MSEs and the test MSEs.
+data = redwine
+train_MSE_del = rep(NA, nfolds)
+test_MSE_del = rep(NA, nfolds)
+
+
+for (i in 1:nfolds){
+  train = data[-folds[[i]],] %>% na.omit()
+  test = data[folds[[i]],]  %>% na.omit()
+  
+  
+  ## linear regression
+  fit = lm(QA ~ ., data = train)
+  train_pred = predict(fit, train)
+  test_pred = predict(fit, test)
+  
+  ## MSEs
+  train_MSE_del[i] = mean((train$QA - train_pred)^2)
+  test_MSE_del[i] = mean((test$QA - test_pred)^2)
+}
+train_MSE_del
+test_MSE_del
+```
+
+**For drop NA,**
+
+The avg MSE on train is `r round(mean(train_MSE_del), 4)` and the avg MSE on test is `r round(mean(test_MSE_del), 4)`.
+
+#### part h
+**random:**
+
+The avg MSE on train is `r mean(train_MSE_random) ` and the avg MSE on test is `r mean(test_MSE_random)`.
+
+**mode:**
+
+The avg MSE on train is `r mean(train_MSE_mode)` and the avg MSE on test is `r mean(test_MSE_mode)`.
+
+**mean:**
+
+The avg MSE on train is `r mean(train_MSE_avg)` and the avg MSE on test is `r mean(test_MSE_avg)`.
+
+**5NN:**
+
+The avg MSE on train is `r mean(train_MSE_5NN)` and the avg MSE on test is `r mean(test_MSE_5NN)`.
+
+**MICE:**
+
+The avg MSE on train is `r mean(train_MSE_mice)` and the avg MSE on test is `r mean(test_MSE_mice)`.
+
+**drop:**
+
+The avg MSE on train is `r mean(train_MSE_del)` and the avg MSE on test is `r mean(test_MSE_del)`.
+
+***All of the MSEs are similar. So I personally don't think one is doing a significantly better job than the others.***
+
+**The lowest MSE for both train and test sets is with 5NN.**
+
+5NN is slightly better (maybe) because it look at the nearest neighbors. It determine the imputed value within a reasonable range.
